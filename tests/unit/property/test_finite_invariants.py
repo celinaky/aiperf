@@ -363,6 +363,8 @@ NUMERIC_BOUNDS_WHITELIST: set[str] = {
     # RateSeriesConfig.points: list[RateSeriesPoint], not a numeric field. The
     # substring-based heuristic sees "int" inside "Point".
     "RateSeriesConfig.points",
+    # ConcurrencySeriesConfig.points: same shape, list[ConcurrencySeriesPoint].
+    "ConcurrencySeriesConfig.points",
     # RequestRecord.clock_offset_ns: signed controller/worker clock difference
     # (received - issued). Either sign is legitimate -- a worker clock behind
     # the controller's is negative -- so no field-level bound applies.

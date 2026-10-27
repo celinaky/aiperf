@@ -89,6 +89,7 @@ if TYPE_CHECKING:
     from aiperf.credit.issuer import CreditIssuer
     from aiperf.credit.structs import Credit
     from aiperf.timing.branch_orchestrator import BranchOrchestrator
+    from aiperf.timing.concurrency import ConcurrencyManager
     from aiperf.timing.config import CreditPhaseConfig
     from aiperf.timing.conversation_source import ConversationSource
     from aiperf.timing.phase.lifecycle import PhaseLifecycle
@@ -118,6 +119,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         branch_orchestrator: BranchOrchestrator | None = None,
         session_tree_registry: SessionTreeRegistry | None = None,
         progress: PhaseProgressTracker | None = None,
+        concurrency_manager: ConcurrencyManager | None = None,
         **kwargs,
     ) -> None:
         super().__init__(logger_name="AgenticReplayTiming")
@@ -142,6 +144,9 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         self.lifecycle = lifecycle
         self.branch_orchestrator = branch_orchestrator
         self._progress = progress
+        self._concurrency_manager = concurrency_manager
+        # Roots the callback handler decided to retire (see should_retire).
+        self._retired_roots: set[str] = set()
         # Per-tree session-slot ledger (agentic replay PROFILING only). When
         # present, a lane's session slot is held until its whole TREE drains
         # (root + every descendant), and recycle of the freed lane is driven by
@@ -1267,6 +1272,31 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         turn = self._build_turn_for_session(session, resume_index)
         await self.credit_issuer.issue_credit(turn)
 
+    def should_retire(self, credit: Credit) -> bool:
+        """Decide whether a returning root turn ends its session early.
+
+        True when the session limit has been lowered below the live session
+        count (the limiter carries debt): the tree is then treated as terminal,
+        no further turns are issued, and its slot is released once the tree
+        drains. The decision is remembered so ``handle_credit_return`` acts on
+        it after the registry's release has already reduced the debt.
+        """
+        if (
+            self.config.phase != CreditPhase.PROFILING
+            or credit.agent_depth > 0
+            or credit.is_final_turn
+            or self._concurrency_manager is None
+            or self._concurrency_manager.session_debt() <= 0
+        ):
+            return False
+        self._retired_roots.add(credit.x_correlation_id)
+        self.info(
+            f"Retiring session {credit.conversation_id} after turn "
+            f"{credit.turn_index}/{credit.num_turns - 1}: session limit is below "
+            "the live session count"
+        )
+        return True
+
     async def handle_credit_return(
         self, credit: Credit, *, error: str | None = None
     ) -> None:
@@ -1327,7 +1357,9 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                 await self._on_rootless_child_done(lane)
             return
 
-        if not credit.is_final_turn and not terminal_overflow:
+        retired = credit.x_correlation_id in self._retired_roots
+        self._retired_roots.discard(credit.x_correlation_id)
+        if not credit.is_final_turn and not terminal_overflow and not retired:
             await self._dispatch_next_turn(credit)
             return
 

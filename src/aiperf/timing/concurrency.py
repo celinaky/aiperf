@@ -96,6 +96,11 @@ class DynamicConcurrencyLimit:
         """Number of slots currently available in the semaphore, taking into account debt."""
         return max(0, self._semaphore._value - self._debt)
 
+    @property
+    def held(self) -> int:
+        """Slots acquired and not yet released, including those over the limit as debt."""
+        return self._current_limit + self._debt - self._semaphore._value
+
     def set_limit(self, new_limit: int) -> None:
         """Update the concurrency limit.
 
@@ -594,6 +599,22 @@ class ConcurrencyManager:
         if phase is not None:
             return self._session_limiter.get_phase_stats(phase)
         return self._session_limiter.global_stats
+
+    def session_slots_held(self) -> int:
+        """Live sessions holding a slot; 0 when session limiting is disabled."""
+        if not self._session_limiter.enabled:
+            return 0
+        return self._session_limiter._global_limit.held
+
+    def session_debt(self) -> int:
+        """Live sessions in excess of the current session limit.
+
+        Positive only after the limit was lowered below the held slot count;
+        0 when session limiting is disabled.
+        """
+        if not self._session_limiter.enabled:
+            return 0
+        return self._session_limiter._global_limit.debt
 
     def set_session_limit(self, phase: PhaseRuntimeKey, limit: int) -> None:
         """Set session concurrency limit for both global and phase.

@@ -11,6 +11,7 @@ from pydantic import ConfigDict, Field, model_validator
 from aiperf.common.enums import CacheBustTarget, CreditPhase
 from aiperf.common.models.base_models import AIPerfBaseModel
 from aiperf.common.types import PhaseKind
+from aiperf.config.concurrency_series import ConcurrencySeriesConfig
 from aiperf.config.dataset.defaults import InputDefaults
 from aiperf.config.rate_series import RateSeriesConfig
 from aiperf.config.sweep.adaptive import SLAFilter
@@ -348,6 +349,10 @@ class CreditPhaseConfig(AIPerfBaseModel):
     request_rate_series: RateSeriesConfig | None = Field(
         default=None,
         description="Piecewise-linear request-rate schedule, if enabled.",
+    )
+    concurrency_series: ConcurrencySeriesConfig | None = Field(
+        default=None,
+        description="Piecewise-linear session-concurrency schedule, if enabled.",
     )
     auto_offset_timestamps: bool = Field(
         default=InputDefaults.FIXED_SCHEDULE_AUTO_OFFSET,
@@ -707,6 +712,7 @@ def _build_profiling_config(
             getattr(phase, "rate_ramp", None)
         ),
         request_rate_series=getattr(phase, "rate_series", None),
+        concurrency_series=getattr(phase, "concurrency_series", None),
         # Fixed schedule config
         auto_offset_timestamps=getattr(
             phase, "auto_offset", InputDefaults.FIXED_SCHEDULE_AUTO_OFFSET

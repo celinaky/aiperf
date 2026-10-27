@@ -2240,6 +2240,20 @@ class CLIConfig(BaseConfig):
         ),
     ] = None
 
+    concurrency_series: Annotated[
+        Path | None,
+        Field(
+            description="JSON file of {time_s, concurrency} points for piecewise-linear "
+            "session-concurrency control over the profiling phase, rising or falling. "
+            "Mutually exclusive with --concurrency-ramp-duration; --concurrency must "
+            "equal the series maximum.",
+        ),
+        CLIParameter(
+            name=("--concurrency-series",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
     prefill_concurrency_ramp_duration: Annotated[
         float | None,
         Field(

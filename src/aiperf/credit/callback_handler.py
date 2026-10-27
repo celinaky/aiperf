@@ -517,6 +517,18 @@ class CreditCallbackHandler:
         # finishes). Overflow-terminal skips intercept above so this path is
         # always reached for that case; authored-final + gated suspend still
         # early-returns (next turn gated implies not authored-final).
+        # Session retirement: when the session limit has dropped below the live
+        # count, the strategy ends this root's tree at its turn boundary. Decided
+        # here, before on_root_terminal can release the slot and clear the debt
+        # the decision reads, and only once (the strategy remembers it).
+        if (
+            not root_terminal
+            and credit.agent_depth == 0
+            and self._tree_registry_engaged(credit)
+        ):
+            should_retire = getattr(handler.strategy, "should_retire", None)
+            root_terminal = should_retire is not None and should_retire(credit) is True
+
         if (
             root_terminal
             and credit.agent_depth == 0

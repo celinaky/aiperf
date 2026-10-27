@@ -497,3 +497,36 @@ class TestConcurrencyStats:
     def test_custom_values(self) -> None:
         s = ConcurrencyStats(acquire_count=10, release_count=5, wait_count=2)
         assert s.acquire_count == 10 and s.release_count == 5 and s.wait_count == 2
+
+
+class TestHeldSlotsUnderDebt:
+    def test_held_counts_slots_over_a_lowered_limit(self) -> None:
+        from aiperf.timing.concurrency import DynamicConcurrencyLimit
+
+        limit = DynamicConcurrencyLimit(4)
+        for _ in range(4):
+            assert limit.try_acquire()
+        assert limit.held == 4
+
+        limit.set_limit(1)
+        assert (limit.held, limit.debt) == (4, 3)
+
+        limit.release()
+        assert (limit.held, limit.debt) == (3, 2)
+        limit.set_limit(5)
+        assert (limit.held, limit.debt, limit.effective_slots) == (3, 0, 2)
+
+    def test_manager_reports_held_and_debt(self) -> None:
+        from aiperf.timing.concurrency import ConcurrencyManager
+
+        manager = ConcurrencyManager()
+        assert (manager.session_slots_held(), manager.session_debt()) == (0, 0)
+        manager.configure_for_phase(
+            "profiling", concurrency=3, prefill_concurrency=None
+        )
+        assert manager.try_acquire_session_slot("profiling", lambda: True)
+        assert manager.try_acquire_session_slot("profiling", lambda: True)
+        manager.set_session_limit("profiling", 1)
+        assert (manager.session_slots_held(), manager.session_debt()) == (2, 1)
+        manager.release_session_slot("profiling")
+        assert (manager.session_slots_held(), manager.session_debt()) == (1, 0)

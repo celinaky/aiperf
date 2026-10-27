@@ -1108,6 +1108,7 @@ _PROFILING_PHASE_OVERRIDE_FIELDS: frozenset[str] = frozenset(
         "request_cancellation_rate",
         "request_rate_ramp_duration",
         "request_rate_series",
+        "concurrency_series",
     }
 )
 
@@ -1182,7 +1183,22 @@ def _apply_phase_loadgen_overrides(
         target, cli, loadgen_set, decision=phase_shape_decision
     )
     _apply_rate_series_override(target, cli, loadgen_set)
+    _apply_concurrency_series_override(target, cli, loadgen_set)
     return decision
+
+
+def _apply_concurrency_series_override(
+    target: dict[str, Any], cli: CLIConfig, fields_set: set[str]
+) -> None:
+    if "concurrency_series" not in fields_set or cli.concurrency_series is None:
+        return
+
+    from aiperf.config.concurrency_series import ConcurrencySeriesConfig
+
+    series = ConcurrencySeriesConfig(path=str(cli.concurrency_series))
+    target["concurrency_series"] = series.model_dump(
+        exclude_none=True, exclude={"path"}
+    )
 
 
 def _apply_rate_series_override(

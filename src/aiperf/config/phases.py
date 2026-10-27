@@ -24,6 +24,7 @@ from aiperf.common.types import PhaseKind
 from aiperf.config.adaptive_scale_phase import AdaptiveScalePhaseMixin
 from aiperf.config.base import BaseConfig
 from aiperf.config.cancellation import CancellationConfig
+from aiperf.config.concurrency_series import ConcurrencySeriesConfig
 from aiperf.config.loader.duration import (
     DurationSpec,
     _normalize_duration,
@@ -182,6 +183,17 @@ class BasePhaseConfig(AdaptiveScalePhaseMixin, BaseConfig):
             default=None,
             description="Ramp concurrency from lower value. "
             "Can be number (seconds) or {duration, strategy}.",
+        ),
+    ]
+
+    concurrency_series: Annotated[
+        ConcurrencySeriesConfig | None,
+        Field(
+            default=None,
+            description="Piecewise-linear session-concurrency schedule over the "
+            "phase, as a JSON path or [{time_s, concurrency}, ...]. Mutually "
+            "exclusive with concurrency_ramp. concurrency must equal the series "
+            "maximum and is filled from it when unset.",
         ),
     ]
 
@@ -458,6 +470,20 @@ class BasePhaseConfig(AdaptiveScalePhaseMixin, BaseConfig):
             raise ValueError(
                 f"Phase '{self.name}': grace_period requires duration to be set"
             )
+        if self.concurrency_series is not None:
+            if self.concurrency_ramp is not None:
+                raise ValueError(
+                    f"Phase '{self.name}': concurrency_series and concurrency_ramp "
+                    "are mutually exclusive"
+                )
+            peak = self.concurrency_series.max_concurrency
+            if "concurrency" not in self.model_fields_set:
+                self.concurrency = peak
+            elif self.concurrency != peak:
+                raise ValueError(
+                    f"Phase '{self.name}': concurrency ({self.concurrency}) must "
+                    f"equal the concurrency_series maximum ({peak})"
+                )
         return self
 
     @model_validator(mode="after")

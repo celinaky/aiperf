@@ -173,6 +173,7 @@ LOADGEN_FIELDS: frozenset[str] = frozenset(
         "burst_phase_starts",
         "concurrency",
         "concurrency_ramp_duration",
+        "concurrency_series",
         "failed_request_threshold",
         "num_users",
         "prefill_concurrency",

@@ -24,6 +24,7 @@ from aiperf.credit.issuer import CreditIssuer
 from aiperf.plugin import plugins
 from aiperf.plugin.enums import PluginType, TimingMode
 from aiperf.timing.branch_orchestrator import BranchOrchestrator
+from aiperf.timing.concurrency_series import ConcurrencySeriesController
 from aiperf.timing.phase.lifecycle import PhaseLifecycle
 from aiperf.timing.phase.progress_tracker import PhaseProgressTracker
 from aiperf.timing.phase.stop_conditions import StopConditionChecker
@@ -823,8 +824,33 @@ class PhaseRunner(TaskManagerMixin):
         self._rampers = []
         config = self._config
 
+        # Session concurrency series: a scheduled limit that can rise and fall.
+        if config.concurrency_series is not None and config.concurrency:
+            points = config.concurrency_series.points
+            self.info(
+                f"Starting session concurrency series: {len(points)} points, "
+                f"initial={points[0].concurrency}, peak={config.concurrency}, "
+                f"final={points[-1].concurrency}"
+            )
+
+            def series_setter(limit: int) -> None:
+                manager = self._concurrency_manager
+                manager.set_session_limit(self._phase_key, limit)
+                self.info(
+                    f"Concurrency series: session limit set to {limit} "
+                    f"(live sessions {manager.session_slots_held()}, "
+                    f"debt {manager.session_debt()})"
+                )
+
+            self._rampers.append(
+                ConcurrencySeriesController(
+                    setter=series_setter,
+                    config=config.concurrency_series,
+                    update_interval=Environment.TIMING.RATE_RAMP_UPDATE_INTERVAL,
+                )
+            )
         # Session concurrency ramper (stepped mode)
-        if config.concurrency_ramp_duration_sec and config.concurrency:
+        elif config.concurrency_ramp_duration_sec and config.concurrency:
             self.info(
                 f"Starting session concurrency ramp: 1 → {config.concurrency} "
                 f"over {config.concurrency_ramp_duration_sec}s"

@@ -438,6 +438,19 @@ def _apply_profiling_rate_series(prof: dict[str, Any], cli: CLIConfig) -> None:
     prof["rate_series"] = series.model_dump(exclude_none=True, exclude={"path"})
 
 
+def _apply_profiling_concurrency_series(prof: dict[str, Any], cli: CLIConfig) -> None:
+    if "concurrency_series" not in cli.model_fields_set:
+        return
+    if "concurrency_ramp_duration" in cli.model_fields_set:
+        raise ValueError(
+            "--concurrency-ramp-duration and --concurrency-series are mutually exclusive."
+        )
+    from aiperf.config.concurrency_series import ConcurrencySeriesConfig
+
+    series = ConcurrencySeriesConfig(path=str(cli.concurrency_series))
+    prof["concurrency_series"] = series.model_dump(exclude_none=True, exclude={"path"})
+
+
 def _reject_orphan_load_generator_flags(prof: dict[str, Any], cli: CLIConfig) -> None:
     """Reject CLI flags whose load-generator partner wasn't supplied.
 
@@ -802,6 +815,7 @@ def build_profiling(cli: CLIConfig) -> dict[str, Any]:
     _apply_profiling_ramps(prof, cli)
     _apply_agentic_replay_fields(prof, cli)
     _apply_profiling_rate_series(prof, cli)
+    _apply_profiling_concurrency_series(prof, cli)
 
     search_dims = _search_space_dimensions(cli)
     prof["type"] = _profiling_phase_type(cli, search_dims)

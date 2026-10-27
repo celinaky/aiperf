@@ -1248,6 +1248,10 @@ The maximum number of requests to send. If not set, will be automatically determ
 Duration in seconds to ramp session concurrency from 1 to target. Useful for gradual warm-up of the target system.
 <br/>_Constraints: > 0_
 
+#### `--concurrency-series` `<str>`
+
+JSON file of {time_s, concurrency} points for piecewise-linear session-concurrency control over the profiling phase, rising or falling. Mutually exclusive with --concurrency-ramp-duration; --concurrency must equal the series maximum.
+
 #### `--prefill-concurrency-ramp-duration` `<float>`
 
 Duration in seconds to ramp prefill concurrency from 1 to target.
@@ -2841,6 +2845,10 @@ The maximum number of requests to send. If not set, will be automatically determ
 Duration in seconds to ramp session concurrency from 1 to target. Useful for gradual warm-up of the target system.
 <br/>_Constraints: > 0_
 
+#### `--concurrency-series` `<str>`
+
+JSON file of {time_s, concurrency} points for piecewise-linear session-concurrency control over the profiling phase, rising or falling. Mutually exclusive with --concurrency-ramp-duration; --concurrency must equal the series maximum.
+
 #### `--prefill-concurrency-ramp-duration` `<float>`
 
 Duration in seconds to ramp prefill concurrency from 1 to target.
@@ -4428,6 +4436,10 @@ The maximum number of requests to send. If not set, will be automatically determ
 
 Duration in seconds to ramp session concurrency from 1 to target. Useful for gradual warm-up of the target system.
 <br/>_Constraints: > 0_
+
+#### `--concurrency-series` `<str>`
+
+JSON file of {time_s, concurrency} points for piecewise-linear session-concurrency control over the profiling phase, rising or falling. Mutually exclusive with --concurrency-ramp-duration; --concurrency must equal the series maximum.
 
 #### `--prefill-concurrency-ramp-duration` `<float>`
 
@@ -6523,6 +6535,10 @@ The maximum number of requests to send. If not set, will be automatically determ
 
 Duration in seconds to ramp session concurrency from 1 to target. Useful for gradual warm-up of the target system.
 <br/>_Constraints: > 0_
+
+#### `--concurrency-series` `<str>`
+
+JSON file of {time_s, concurrency} points for piecewise-linear session-concurrency control over the profiling phase, rising or falling. Mutually exclusive with --concurrency-ramp-duration; --concurrency must equal the series maximum.
 
 #### `--prefill-concurrency-ramp-duration` `<float>`
 
