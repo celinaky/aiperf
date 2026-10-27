@@ -36,6 +36,7 @@ def _make_strategy(
 
     strategy.conversation_source = conversation_source
     strategy.credit_issuer = credit_issuer
+    strategy._idle_next_turns = {}
     strategy.scheduler = scheduler
     strategy.branch_orchestrator = branch_orchestrator
     return strategy, credit_issuer, scheduler

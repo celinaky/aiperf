@@ -59,7 +59,7 @@ import asyncio
 import time
 import uuid
 from collections import Counter, deque
-from collections.abc import Iterable
+from collections.abc import Coroutine, Iterable
 from typing import TYPE_CHECKING
 
 from msgspec.structs import replace as _struct_replace
@@ -147,6 +147,9 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         self._concurrency_manager = concurrency_manager
         # Roots the callback handler decided to retire (see should_retire).
         self._retired_roots: set[str] = set()
+        # Roots idle in recorded think time: root correlation id -> (scheduler
+        # handle of the pending next turn, loop time it is due, the coroutine).
+        self._idle_next_turns: dict[str, tuple[int, float, Coroutine]] = {}
         # Per-tree session-slot ledger (agentic replay PROFILING only). When
         # present, a lane's session slot is held until its whole TREE drains
         # (root + every descendant), and recycle of the freed lane is driven by
@@ -378,6 +381,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         lane = self._correlation_to_lane.pop(root_corr, None)
         self._session_marker.pop(root_corr, None)
         self._root_to_lane.pop(root_corr, None)
+        self._idle_next_turns.pop(root_corr, None)
         if lane is None:
             self.warning(
                 lambda: (
@@ -1419,10 +1423,54 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             if turn.agent_depth > 0
             else self.credit_issuer.issue_credit(turn)
         )
-        if next_meta.delay_ms is not None and next_meta.delay_ms > 0:
-            self.scheduler.schedule_later(next_meta.delay_ms / MILLIS_PER_SECOND, coro)
-        else:
+        if next_meta.delay_ms is None or next_meta.delay_ms <= 0:
             await coro
+            return
+        delay_s = next_meta.delay_ms / MILLIS_PER_SECOND
+        if turn.agent_depth > 0:
+            self.scheduler.schedule_later(delay_s, coro)
+            return
+        # A root in think time holds a session slot with nothing in flight;
+        # track it so a lowered session limit can retire it immediately.
+        root = credit.effective_root_correlation_id
+        handle = self.scheduler.schedule_later(
+            delay_s, self._fire_idle_turn(root, coro)
+        )
+        self._idle_next_turns[root] = (handle, time.perf_counter() + delay_s, coro)
+
+    async def _fire_idle_turn(self, root: str, coro: Coroutine) -> None:
+        self._idle_next_turns.pop(root, None)
+        await coro
+
+    def retire_idle_sessions(self, count: int) -> int:
+        """Retire up to ``count`` sessions that are idle in recorded think time.
+
+        Called when the session limit drops below the live count. A session
+        waiting on its next scheduled root turn has nothing in flight, so it
+        ends at once: the pending turn is cancelled and the tree is marked
+        terminal, which releases its slot (once any subagents drain) and
+        recycles the lane. The most idle sessions, those furthest from their
+        next turn, go first. Returns how many were retired.
+        """
+        if count <= 0 or not self._has_tree_registry:
+            return 0
+        most_idle_first = sorted(
+            self._idle_next_turns.items(), key=lambda item: item[1][1], reverse=True
+        )
+        retired = 0
+        for root, (handle, _due, coro) in most_idle_first[:count]:
+            self._idle_next_turns.pop(root, None)
+            self.scheduler.cancel_handle_id(handle)
+            coro.close()
+            if not self._session_tree_registry.has_tree(root):
+                continue
+            self.info(
+                f"Retiring idle session {root} (lane {self._root_to_lane.get(root)}): "
+                "session limit is below the live session count"
+            )
+            self._session_tree_registry.on_root_terminal(root)
+            retired += 1
+        return retired
 
     async def _spawn_from_recycle_or_id(
         self,

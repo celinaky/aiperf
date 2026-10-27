@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -139,3 +140,88 @@ async def test_retired_tree_drain_recycles_lane() -> None:
 
     scheduler.schedule_later.assert_called_once()
     assert "xcorr" not in strategy._root_to_lane
+
+
+# --- Idle retirement -----------------------------------------------------------
+
+
+async def _noop() -> None:
+    return None
+
+
+def test_delayed_root_turn_is_tracked_as_idle() -> None:
+    strategy, _, scheduler = _make_strategy(debt=0)
+    src = strategy.conversation_source
+    real = src.get_next_turn_metadata
+    src.get_next_turn_metadata = lambda credit: real(credit).model_copy(
+        update={"delay_ms": 5000}
+    )
+    credit = _make_credit(conversation_id="trace_0", turn_index=1, num_turns=5)
+
+    asyncio.run(strategy.handle_credit_return(credit))
+
+    delay, wrapper = scheduler.schedule_later.call_args[0]
+    assert delay == pytest.approx(5.0)
+    handle, _due, inner = strategy._idle_next_turns["xcorr"]
+    assert handle is scheduler.schedule_later.return_value
+    wrapper.close()
+    inner.close()
+
+
+@pytest.mark.asyncio
+async def test_fired_idle_turn_leaves_the_idle_table() -> None:
+    strategy, _, _ = _make_strategy(debt=0)
+    fired = []
+
+    async def turn() -> None:
+        fired.append(True)
+
+    strategy._idle_next_turns["r"] = (1, 0.0, turn())
+    await strategy._fire_idle_turn("r", strategy._idle_next_turns["r"][2])
+
+    assert fired == [True]
+    assert "r" not in strategy._idle_next_turns
+
+
+def test_retire_idle_sessions_ends_most_idle_first() -> None:
+    strategy, _, scheduler = _make_strategy(debt=3)
+    registry = strategy._session_tree_registry
+    registry.has_tree.return_value = True
+    coros = {root: _noop() for root in ("soon", "later", "latest")}
+    strategy._idle_next_turns = {
+        "soon": (11, 10.0, coros["soon"]),
+        "later": (22, 30.0, coros["later"]),
+        "latest": (33, 50.0, coros["latest"]),
+    }
+
+    assert strategy.retire_idle_sessions(2) == 2
+
+    assert [c.args[0] for c in scheduler.cancel_handle_id.call_args_list] == [33, 22]
+    assert [c.args[0] for c in registry.on_root_terminal.call_args_list] == [
+        "latest",
+        "later",
+    ]
+    assert list(strategy._idle_next_turns) == ["soon"]
+    coros["soon"].close()
+
+
+def test_retire_idle_sessions_skips_roots_without_a_tree() -> None:
+    strategy, _, scheduler = _make_strategy(debt=1)
+    registry = strategy._session_tree_registry
+    registry.has_tree.return_value = False
+    strategy._idle_next_turns = {"gone": (5, 1.0, _noop())}
+
+    assert strategy.retire_idle_sessions(1) == 0
+
+    scheduler.cancel_handle_id.assert_called_once_with(5)
+    registry.on_root_terminal.assert_not_called()
+    assert not strategy._idle_next_turns
+
+
+def test_retire_idle_sessions_noop_without_registry_or_demand() -> None:
+    strategy, _, _ = _make_strategy(debt=2)
+    strategy._idle_next_turns = {"r": (1, 1.0, _noop())}
+    assert strategy.retire_idle_sessions(0) == 0
+    strategy._session_tree_registry = None
+    assert strategy.retire_idle_sessions(2) == 0
+    strategy._idle_next_turns["r"][2].close()

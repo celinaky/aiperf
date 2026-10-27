@@ -531,8 +531,44 @@ class TestRamperCreation:
             await r.run(is_final_phase=True)
             assert len(r._rampers) == 1
             assert isinstance(r._rampers[0], ConcurrencySeriesController)
+            conc.session_debt.return_value = 0
             r._rampers[0]._setter(3)
             conc.set_session_limit.assert_called_with(r._phase_key, 3)
+
+    async def test_concurrency_series_setter_retires_idle_sessions_for_debt(
+        self,
+        conv_src: MagicMock,
+        pub: MagicMock,
+        router: MagicMock,
+        conc: MagicMock,
+        cancel: MagicMock,
+        cb: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        series = ConcurrencySeriesConfig(
+            points=[
+                {"time_s": 0.0, "concurrency": 1},
+                {"time_s": 0.01, "concurrency": 4},
+            ]
+        )
+        retire = MagicMock(return_value=2)
+        monkeypatch.setattr(MockStrategy, "retire_idle_sessions", retire, raising=False)
+        r = make_runner(
+            cfg(conc=4, conc_series=series), conv_src, pub, router, conc, cancel, cb
+        )
+        with patch(
+            "aiperf.timing.phase.runner.plugins.get_class",
+            return_value=lambda **kw: MockStrategy(),
+        ):
+            r._progress.all_credits_sent_event.set()
+            r._progress.all_credits_returned_event.set()
+            await r.run(is_final_phase=True)
+            conc.session_debt.return_value = 3
+            r._rampers[0]._setter(1)
+            retire.assert_called_once_with(3)
+            conc.session_debt.return_value = 0
+            r._rampers[0]._setter(2)
+            retire.assert_called_once()
 
     async def test_prefill_concurrency_ramper_created(
         self,

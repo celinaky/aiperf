@@ -833,13 +833,20 @@ class PhaseRunner(TaskManagerMixin):
                 f"final={points[-1].concurrency}"
             )
 
+            retire_idle = getattr(strategy, "retire_idle_sessions", None)
+
             def series_setter(limit: int) -> None:
                 manager = self._concurrency_manager
                 manager.set_session_limit(self._phase_key, limit)
+                # Sessions idle in think time hold slots with nothing in
+                # flight; end as many as the limit is now short by.
+                debt = manager.session_debt()
+                idle_retired = retire_idle(debt) if debt > 0 and retire_idle else 0
                 self.info(
                     f"Concurrency series: session limit set to {limit} "
                     f"(live sessions {manager.session_slots_held()}, "
-                    f"debt {manager.session_debt()})"
+                    f"debt {manager.session_debt()}, "
+                    f"idle sessions retired {idle_retired})"
                 )
 
             self._rampers.append(
